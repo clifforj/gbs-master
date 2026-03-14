@@ -1,4 +1,4 @@
-# GBS Master
+# `gbs-master`
 
 ![](screenshot.png)
 
