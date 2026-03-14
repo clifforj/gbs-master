@@ -1,13 +1,16 @@
 # GBS Master
 
-Builds a Game Boy ROM (.gb) music player from any GBS sound file.
+![](screenshot.png)
+
+Builds a Game Boy ROM (.gb) music player from any GBS sound file, with optional playlists and cover art.
 
 ## What it does
 
 GBS (Game Boy Sound) files contain extracted music data and sound drivers from original Game Boy games. This tool takes a `.gbs` file and produces a playable `.gb` ROM with:
 
 - A scrolling track list with cursor navigation
-- A window overlay showing the now-playing track name and album title
+- Customisable track names and order
+- A window overlay showing the now-playing track name, album title and cover image
 - Controls: Up/Down to browse, A to play, Left/Right to skip
 - Optional cover art
 - Customisable icons
