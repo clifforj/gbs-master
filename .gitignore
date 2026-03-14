@@ -1,0 +1,19 @@
+node_modules/
+dist/
+
+# Ignore config folders (IDE settings and such)
+/.*
+
+# Build output
+rom/build/
+rom/src/generated/
+
+# Misc outputs/inputs
+*.gb
+*.sav
+*.gbs
+*.playlist.json
+input/
+
+# Source font PNG - for the soft font (license prohibits redistribution; soft.2bpp is the pre-processed version)
+rom/assets/font/soft.png

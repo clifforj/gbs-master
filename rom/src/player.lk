@@ -1,0 +1,11 @@
+; player.lk — SDCC linker options for Game Boy player ROM
+; Used by: sdldgb -f src/player.lk -n -i -o build/player.ihx <objects>
+;
+; _STARTUP is ABS (positioned by .org in startup.s), no -b needed.
+; C code areas are relocatable and placed here:
+;   _CODE  at 0x0380 — safely after startup code + font data (~0x0360)
+;   _DATA  at 0xC100 — above GBS INIT's WRAM zeroing range (0xC000-0xC0EF)
+;   _BSS   at 0xC180 — after _DATA (WRAM-cleared by startup, so effectively zero)
+-b _CODE = 0x0380
+-b _DATA = 0xC100
+-b _BSS = 0xC180

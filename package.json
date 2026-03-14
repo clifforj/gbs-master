@@ -1,0 +1,27 @@
+{
+  "name": "gbs-master",
+  "version": "1.0.0",
+  "description": "Build playable Game Boy ROMs from GBS sound files - complete with track lists, and broad driver compatibility.",
+  "license": "MIT",
+  "author": {
+    "name": "John Clifford",
+    "url": "https://github.com/clifforj"
+  },
+  "type": "module",
+  "scripts": {
+    "build:rom": "tsx src/cli/index.ts build",
+    "playlist:init": "tsx src/cli/index.ts playlist init",
+    "build:ts": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "commander": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.5.0"
+  }
+}
