@@ -53,7 +53,7 @@ npm run build:rom -- <file.gbs> --playlist tracks.json -o player.gb
 
 | Flag | Description |
 |---|---|
-| `-o, --output <path>` | Output `.gb` file path (default: `out.gb`) |
+| `-o, --output <path>` | Output `.gb` file path (required) |
 | `--playlist <path>` | Playlist JSON with track titles |
 | `--cover <path>` | Album cover PNG (16x16, GBStudio palette) |
 | `--gbdk-home <path>` | Path to GBDK-2020 installation root |
