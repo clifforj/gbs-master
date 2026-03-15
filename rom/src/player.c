@@ -3,13 +3,13 @@
  *
  * GBS INIT/PLAY call convention is unchanged from the GBDK version.
  * All __naked __asm/__endasm blocks are kept verbatim — they use raw
- * HRAM addresses and GBS_STACK_PTR which are independent of GBDK.
+ * WRAM addresses and GBS_STACK_PTR which are independent of GBDK.
  *
  * WRAM layout improvement over GBDK version:
  *   0xC000-0xC0EF — GBS engine state (zeroed by INIT, managed by GBS)
  *   0xC100+       — Our C variables (_DATA/_BSS, placed by linker)
  * GBS INIT's WRAM zeroing no longer reaches our variables.
- * The HRAM backup of player_current_track is kept as belt-and-suspenders.
+ * The WRAM backup of player_current_track is kept as belt-and-suspenders.
  */
 
 #include <stdint.h>
@@ -21,7 +21,7 @@
 /* ── Module state ─────────────────────────────────────────────────────────── */
 
 /* Lives in _DATA/_BSS at 0xC100+ — safely above GBS INIT zeroing range.
-   Still backed up to HRAM before each PLAY call (belt-and-suspenders). */
+   Still backed up to WRAM before each PLAY call (belt-and-suspenders). */
 uint8_t player_current_track;
 
 /* Actual GBS track number (1-based) to pass to INIT.
@@ -30,12 +30,14 @@ uint8_t player_current_track;
    player_gbs_track is TRACK_LIST[player_current_track-1].gbs_track. */
 uint8_t player_gbs_track;
 
-/* SP save slots in HRAM — never touched by GBS drivers. */
-__at(0xFF95) uint8_t sp_save_lo;
-__at(0xFF96) uint8_t sp_save_hi;
+/* SP save slots — in WRAM _BSS (safe from GBS INIT/PLAY).
+   Previously in HRAM at 0xFF95-0xFF97, but some GBS drivers (e.g. DMG-FFJ)
+   zero HRAM 0xFF90-0xFF9F during INIT, destroying those save slots. */
+uint8_t sp_save_lo;
+uint8_t sp_save_hi;
 
 /* Backup of player_current_track across GBS PLAY calls. */
-__at(0xFF97) uint8_t player_track_save;
+uint8_t player_track_save;
 
 
 /* ── Internal helpers ─────────────────────────────────────────────────────── */
@@ -45,18 +47,19 @@ __at(0xFF97) uint8_t player_track_save;
    Entry: player_gbs_track holds the 1-based GBS track number.
    Register usage:
      HL — temporary for SP save/restore (add hl,sp is the only way to read SP)
-     A  — SP bytes for HRAM save, then 0-based track index for GBS INIT
-   SP is saved to HRAM (not WRAM) because GBS INIT zeros WRAM 0xC000-0xC0EF. */
+     A  — SP bytes, then 0-based track index for GBS INIT
+   SP is saved to WRAM _BSS (above the GBS INIT zeroing range).
+   Cannot use HRAM — some GBS drivers zero 0xFF90-0xFF9F during INIT. */
 static void player_call_init(void) __naked {
     __asm
         ; Copy SP into HL
         ld   hl, #0
         add  hl, sp
-        ; Save GBDK SP to HRAM (GBS INIT zeros WRAM, so WRAM is unsafe)
+        ; Save SP to WRAM _BSS (safe from GBS INIT zeroing)
         ld   a, l
-        ldh  (_sp_save_lo), a
+        ld   (_sp_save_lo), a
         ld   a, h
-        ldh  (_sp_save_hi), a
+        ld   (_sp_save_hi), a
         ; Switch to the stack pointer expected by the GBS driver
         ld   sp, #GBS_STACK_PTR
         ; Call INIT with 0-based GBS track index in A
@@ -69,10 +72,10 @@ static void player_call_init(void) __naked {
 #else
         call GBS_INIT_ADDR
 #endif
-        ; Restore SP from HRAM
-        ldh  a, (_sp_save_lo)
+        ; Restore SP from WRAM
+        ld   a, (_sp_save_lo)
         ld   l, a
-        ldh  a, (_sp_save_hi)
+        ld   a, (_sp_save_hi)
         ld   h, a
         ld   sp, hl
         ret
@@ -107,22 +110,22 @@ void player_init(void) {
    Register usage:
      HL — temporary for SP save/restore
      A  — SP bytes, track backup, then register reset constants
-   Saves player_current_track to HRAM before the call because GBS PLAY may
-   corrupt WRAM variables.  Resets LCDC, BGP, and IE after the call because
+   Saves player_current_track to WRAM before the call because GBS PLAY may
+   corrupt WRAM in the 0xC000-0xC0EF range.  Resets LCDC, BGP, and IE after the call because
    GBS PLAY writes to video registers as a side-effect of being extracted
    from a running game (the original game used these for scroll/palette). */
 void player_tick(void) __naked {
     __asm
-        ; Backup player_current_track to HRAM before PLAY can touch it
+        ; Backup player_current_track to WRAM _BSS before PLAY can touch it
         ld   a, (_player_current_track)
-        ldh  (_player_track_save), a
-        ; Save SP to HRAM before switching to GBS stack
+        ld   (_player_track_save), a
+        ; Save SP to WRAM before switching to GBS stack
         ld   hl, #0
         add  hl, sp
         ld   a, l
-        ldh  (_sp_save_lo), a
+        ld   (_sp_save_lo), a
         ld   a, h
-        ldh  (_sp_save_hi), a
+        ld   (_sp_save_hi), a
         ; Switch to GBS stack and call PLAY
         ld   sp, #GBS_STACK_PTR
 #if BANKED_CODE
@@ -133,9 +136,9 @@ void player_tick(void) __naked {
         call GBS_PLAY_ADDR
 #endif
         ; Restore SP
-        ldh  a, (_sp_save_lo)
+        ld   a, (_sp_save_lo)
         ld   l, a
-        ldh  a, (_sp_save_hi)
+        ld   a, (_sp_save_hi)
         ld   h, a
         ld   sp, hl
         ; Reset video registers to known-good constants.
@@ -149,7 +152,7 @@ void player_tick(void) __naked {
         ld   a, #0x01
         ld   (0xFFFF), a        ; IE = VBL only
         ; Restore player_current_track
-        ldh  a, (_player_track_save)
+        ld   a, (_player_track_save)
         ld   (_player_current_track), a
         ret
     __endasm;
