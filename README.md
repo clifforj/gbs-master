@@ -19,10 +19,19 @@ The ROM is compiled from C and assembly source using SDCC (no GBDK library) to a
 
 ## Requirements
 
-- **Node.js** 20+
-- **GBDK-2020** -- only the SDCC toolchain binaries are used (`sdcc`, `sdasgb`, `sdldgb`). The GBDK library itself is not used.
+- **[Node.js](https://nodejs.org/)** 20+
+- **[GBDK-2020](https://github.com/gbdk-2020/gbdk-2020)** -- only the SDCC toolchain binaries are used (`sdcc`, `sdasgb`, `sdldgb`). The GBDK library itself is not used.
 
-Set the `GBDK_HOME` environment variable or pass `--gbdk-home` on the command line.
+### Installing GBDK-2020
+
+1. Download the latest release for your platform from the [GBDK-2020 releases page](https://github.com/gbdk-2020/gbdk-2020/releases).
+2. Extract the archive to a location of your choice (e.g. `~/gbdk` or `C:\gbdk`).
+3. Set the `GBDK_HOME` environment variable to the extracted folder, or pass `--gbdk-home` on the command line each time you build.
+
+```bash
+# Example: set GBDK_HOME in your shell profile
+export GBDK_HOME=~/gbdk
+```
 
 ## Quick start
 
