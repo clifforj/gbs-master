@@ -31,7 +31,7 @@ export function buildTemplateSync(
     });
   }
 
-  return { gbs: gbsFilename, tracks };
+  return { gbs: gbsFilename, title: header.title, tracks };
 }
 
 // ── Merging GBS metadata with playlist ───────────────────────────────────────
