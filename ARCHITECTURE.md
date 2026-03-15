@@ -1,35 +1,6 @@
 # Architecture
 
-## Build Pipeline
-
-```mermaid
-flowchart TD
-    gbs["file.gbs"] --> parser["parser.ts"]
-    playlist["playlist.json"] --> manager["manager.ts"]
-    cover["cover.png"] --> assets["cover.ts / font.ts / icons.ts"]
-
-    parser --> ParsedGbs
-    manager --> Tracks["Track[]"]
-    assets --> tiles["tile data (Uint8Array)"]
-
-    ParsedGbs --> codegen["codegen.ts"]
-    Tracks --> codegen
-
-    codegen --> generated["playlist_data.h/.c\ntrampolines.s\nresource_bank.h"]
-
-    generated --> sdcc["sdasgb + sdcc + sdldgb"]
-    sdcc --> ihx["player.ihx"]
-    ihx --> ihxToBinary["ihxToBinary()"]
-    ihxToBinary --> playergb["player.gb"]
-
-    playergb --> embedGbs["embedGbs()"]
-    tiles --> embedGbs
-
-    embedGbs --> finalise["Expand ROM to standard size\nCopy GBS bytes at loadAddr - 0x70\nCopy resource bank · fonts, icons, cover\nCopy code bank · if banked mode\nPatch cart header · type, size, checksums"]
-    finalise --> out["out.gb"]
-```
-
-### Key steps
+## Build Pipeline - Key steps
 
 1. **Parse GBS**: Extract header fields (loadAddr, initAddr, playAddr, stackPtr, track count) and determine the ROM offset where GBS data will be embedded.
 
