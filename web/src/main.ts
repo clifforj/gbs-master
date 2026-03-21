@@ -57,7 +57,7 @@ async function loadTemplate(name: string): Promise<Uint8Array> {
   const cached = templateCache.get(name);
   if (cached) return cached;
 
-  const resp = await fetch(`/${name}`);
+  const resp = await fetch(`./${name}`);
   if (!resp.ok) throw new Error(`Failed to load template: ${name} (HTTP ${resp.status})`);
   const buf = new Uint8Array(await resp.arrayBuffer());
   if (buf.length < 0x4000) {
