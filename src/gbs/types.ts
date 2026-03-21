@@ -54,7 +54,7 @@ export interface GbsHeader {
 export interface ParsedGbs {
   header: GbsHeader;
   /** Raw bytes of the entire GBS file (header + music data). */
-  raw: Buffer;
+  raw: Uint8Array;
   /**
    * Byte offset within the final GB ROM where the full GBS file is written.
    * Formula: header.loadAddr - GBS_HEADER_SIZE
