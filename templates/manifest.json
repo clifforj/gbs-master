@@ -1,0 +1,164 @@
+{
+  "wramVariants": [
+    {
+      "key": "low",
+      "wram": {
+        "dataAddr": 49408,
+        "initializedAddr": 49600,
+        "stackAddr": 49920
+      },
+      "dataPages": [
+        193,
+        194
+      ]
+    },
+    {
+      "key": "mid",
+      "wram": {
+        "dataAddr": 50688,
+        "initializedAddr": 50880,
+        "stackAddr": 51200
+      },
+      "dataPages": [
+        198,
+        199
+      ]
+    },
+    {
+      "key": "high",
+      "wram": {
+        "dataAddr": 55040,
+        "initializedAddr": 55232,
+        "stackAddr": 55552
+      },
+      "dataPages": [
+        215,
+        216
+      ]
+    }
+  ],
+  "templates": {
+    "template-standard-low": {
+      "file": "template-standard-low.gb",
+      "mode": "standard",
+      "wramVariant": "low",
+      "codeAddr": 896,
+      "bankedCode": false,
+      "codeBankNum": 0,
+      "wram": {
+        "dataAddr": 49408,
+        "initializedAddr": 49600,
+        "stackAddr": 49920
+      },
+      "dataPages": [
+        193,
+        194
+      ]
+    },
+    "template-standard-mid": {
+      "file": "template-standard-mid.gb",
+      "mode": "standard",
+      "wramVariant": "mid",
+      "codeAddr": 896,
+      "bankedCode": false,
+      "codeBankNum": 0,
+      "wram": {
+        "dataAddr": 50688,
+        "initializedAddr": 50880,
+        "stackAddr": 51200
+      },
+      "dataPages": [
+        198,
+        199
+      ]
+    },
+    "template-standard-high": {
+      "file": "template-standard-high.gb",
+      "mode": "standard",
+      "wramVariant": "high",
+      "codeAddr": 896,
+      "bankedCode": false,
+      "codeBankNum": 0,
+      "wram": {
+        "dataAddr": 55040,
+        "initializedAddr": 55232,
+        "stackAddr": 55552
+      },
+      "dataPages": [
+        215,
+        216
+      ]
+    },
+    "template-banked-low": {
+      "file": "template-banked-low.gb",
+      "mode": "banked",
+      "wramVariant": "low",
+      "codeAddr": 16384,
+      "bankedCode": true,
+      "codeBankNum": 2,
+      "wram": {
+        "dataAddr": 49408,
+        "initializedAddr": 49600,
+        "stackAddr": 49920
+      },
+      "dataPages": [
+        193,
+        194
+      ]
+    },
+    "template-banked-mid": {
+      "file": "template-banked-mid.gb",
+      "mode": "banked",
+      "wramVariant": "mid",
+      "codeAddr": 16384,
+      "bankedCode": true,
+      "codeBankNum": 2,
+      "wram": {
+        "dataAddr": 50688,
+        "initializedAddr": 50880,
+        "stackAddr": 51200
+      },
+      "dataPages": [
+        198,
+        199
+      ]
+    },
+    "template-banked-high": {
+      "file": "template-banked-high.gb",
+      "mode": "banked",
+      "wramVariant": "high",
+      "codeAddr": 16384,
+      "bankedCode": true,
+      "codeBankNum": 2,
+      "wram": {
+        "dataAddr": 55040,
+        "initializedAddr": 55232,
+        "stackAddr": 55552
+      },
+      "dataPages": [
+        215,
+        216
+      ]
+    }
+  },
+  "patchOffsets": {
+    "configTable": 640,
+    "configTableSize": 128,
+    "trampolineInitCall": {
+      "standard": 516,
+      "banked": null
+    },
+    "trampolinePlayCall": {
+      "standard": 520,
+      "banked": null
+    }
+  },
+  "resourceBank": {
+    "fontDataOff": 0,
+    "fontWidthsOff": 1520,
+    "softFontOff": 1615,
+    "iconTilesOff": 3247,
+    "coverTilesOff": 3311,
+    "trackDataOff": 3375
+  }
+}
