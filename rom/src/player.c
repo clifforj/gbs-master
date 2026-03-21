@@ -1,13 +1,17 @@
 /**
- * GBS Playback Driver — no GBDK library.
+ * GBS Playback Driver — calls GBS INIT/PLAY via trampolines.
  *
- * GBS INIT/PLAY call convention is unchanged from the GBDK version.
- * All __naked __asm/__endasm blocks are kept verbatim — they use raw
- * WRAM addresses and GBS_STACK_PTR which are independent of GBDK.
+ * All GBS calls go through _gbs_init_trampoline / _gbs_play_trampoline
+ * (defined in trampolines.s, always in bank 0).  In non-banked mode the
+ * trampoline is a simple call+ret; in banked mode it handles MBC bank
+ * switching around the GBS call.
  *
- * WRAM layout improvement over GBDK version:
+ * GBS stack pointer and other per-GBS values are read at runtime from the
+ * config table at ROM address 0x0280 (see config.h).
+ *
+ * WRAM layout:
  *   0xC000-0xC0EF — GBS engine state (zeroed by INIT, managed by GBS)
- *   0xC100+       — Our C variables (_DATA/_BSS, placed by linker)
+ *   0xC100+       — Our C variables (_DATA, placed by linker)
  * GBS INIT's WRAM zeroing no longer reaches our variables.
  * The WRAM backup of player_current_track is kept as belt-and-suspenders.
  */
@@ -16,21 +20,22 @@
 
 #include "hardware.h"
 #include "player.h"
-#include "generated/playlist_data.h"
+#include "config.h"
+#include "track_data.h"
 
 /* ── Module state ─────────────────────────────────────────────────────────── */
 
-/* Lives in _DATA/_BSS at 0xC100+ — safely above GBS INIT zeroing range.
+/* Lives in _DATA at 0xC100+ — safely above GBS INIT zeroing range.
    Still backed up to WRAM before each PLAY call (belt-and-suspenders). */
 uint8_t player_current_track;
 
 /* Actual GBS track number (1-based) to pass to INIT.
    When a playlist is used, this differs from player_current_track:
    player_current_track is the playlist index (1..GBS_NUM_TRACKS),
-   player_gbs_track is TRACK_LIST[player_current_track-1].gbs_track. */
+   player_gbs_track is the GBS track from the resource bank track data. */
 uint8_t player_gbs_track;
 
-/* SP save slots — in WRAM _BSS (safe from GBS INIT/PLAY).
+/* SP save slots — in WRAM (safe from GBS INIT/PLAY).
    Previously in HRAM at 0xFF95-0xFF97, but some GBS drivers (e.g. DMG-FFJ)
    zero HRAM 0xFF90-0xFF9F during INIT, destroying those save slots. */
 uint8_t sp_save_lo;
@@ -48,30 +53,29 @@ uint8_t player_track_save;
    Register usage:
      HL — temporary for SP save/restore (add hl,sp is the only way to read SP)
      A  — SP bytes, then 0-based track index for GBS INIT
-   SP is saved to WRAM _BSS (above the GBS INIT zeroing range).
-   Cannot use HRAM — some GBS drivers zero 0xFF90-0xFF9F during INIT. */
+   SP is saved to WRAM (above the GBS INIT zeroing range).
+   GBS stack pointer is read from the config table at 0x0284. */
 static void player_call_init(void) __naked {
     __asm
         ; Copy SP into HL
         ld   hl, #0
         add  hl, sp
-        ; Save SP to WRAM _BSS (safe from GBS INIT zeroing)
+        ; Save SP to WRAM (safe from GBS INIT zeroing)
         ld   a, l
         ld   (_sp_save_lo), a
         ld   a, h
         ld   (_sp_save_hi), a
-        ; Switch to the stack pointer expected by the GBS driver
-        ld   sp, #GBS_STACK_PTR
+        ; Read GBS stack pointer from config table and set SP
+        ld   a, (0x0284)          ; gbs_stack_ptr lo
+        ld   l, a
+        ld   a, (0x0285)          ; gbs_stack_ptr hi
+        ld   h, a
+        ld   sp, hl
         ; Call INIT with 0-based GBS track index in A
         ld   a, (_player_gbs_track)
         dec  a
-#if BANKED_CODE
-        ; In banked mode, call the bank-0 trampoline which calls GBS INIT
-        ; then restores the code bank before returning here.
+        ; Call GBS INIT via bank-0 trampoline
         call _gbs_init_trampoline
-#else
-        call GBS_INIT_ADDR
-#endif
         ; Restore SP from WRAM
         ld   a, (_sp_save_lo)
         ld   l, a
@@ -111,12 +115,11 @@ void player_init(void) {
      HL — temporary for SP save/restore
      A  — SP bytes, track backup, then register reset constants
    Saves player_current_track to WRAM before the call because GBS PLAY may
-   corrupt WRAM in the 0xC000-0xC0EF range.  Resets LCDC, BGP, and IE after the call because
-   GBS PLAY writes to video registers as a side-effect of being extracted
-   from a running game (the original game used these for scroll/palette). */
+   corrupt WRAM in the 0xC000-0xC0EF range.  Resets LCDC, BGP, and IE after
+   the call because GBS PLAY writes to video registers as a side-effect. */
 void player_tick(void) __naked {
     __asm
-        ; Backup player_current_track to WRAM _BSS before PLAY can touch it
+        ; Backup player_current_track to WRAM before PLAY can touch it
         ld   a, (_player_current_track)
         ld   (_player_track_save), a
         ; Save SP to WRAM before switching to GBS stack
@@ -126,15 +129,14 @@ void player_tick(void) __naked {
         ld   (_sp_save_lo), a
         ld   a, h
         ld   (_sp_save_hi), a
-        ; Switch to GBS stack and call PLAY
-        ld   sp, #GBS_STACK_PTR
-#if BANKED_CODE
-        ; In banked mode, call the bank-0 trampoline which calls GBS PLAY
-        ; then restores the code bank before returning here.
+        ; Read GBS stack pointer from config table and set SP
+        ld   a, (0x0284)          ; gbs_stack_ptr lo
+        ld   l, a
+        ld   a, (0x0285)          ; gbs_stack_ptr hi
+        ld   h, a
+        ld   sp, hl
+        ; Call GBS PLAY via bank-0 trampoline
         call _gbs_play_trampoline
-#else
-        call GBS_PLAY_ADDR
-#endif
         ; Restore SP
         ld   a, (_sp_save_lo)
         ld   l, a
@@ -163,7 +165,7 @@ void player_set_track(uint8_t track_number) {
     if (track_number > GBS_NUM_TRACKS) track_number = GBS_NUM_TRACKS;
 
     player_current_track = track_number;
-    player_gbs_track = TRACK_LIST[track_number - 1u].gbs_track;
+    player_gbs_track = get_gbs_track_number(track_number - 1u);
 
     player_call_init();
 }

@@ -32,10 +32,11 @@
 #include "hardware.h"
 #include "ui.h"
 #include "player.h"
-#include "generated/playlist_data.h"
-#include "generated/resource_bank.h"
-#include "generated/icon_data.h"
-#include "generated/cover_data.h"
+#include "config.h"
+#include "resource_bank.h"
+#include "icon_data.h"
+#include "cover_data.h"
+#include "track_data.h"
 
 /* Visible tile rows = screen height in tiles (144 / 8).
    The bottom window overlay hides BG rows 14-17 (LY 112-143).
@@ -64,7 +65,7 @@
 #define TILE_ELLIPSIS   (SOFT_FONT_BASE + (0x85u - 0x20u))
 #define TILE_CURSOR     ICON_CURSOR_TILE
 #define TILE_PLAYING    ICON_PLAYING_TILE
-#define SPRITE_X         8u   /* OAM X has 8-px offset; X=8 → screen column 0 */
+#define SPRITE_X         8u   /* OAM X has 8-px offset; X=8 -> screen column 0 */
 
 /* Scratch tiles for the now-playing name on the bottom window overlay.
    Tiles 197-212 (16 tiles = 128 px).  VRAM address = 0x8000 + tile * 16. */
@@ -114,10 +115,14 @@ static uint8_t s_name_track = 0u;
    needs to bank-switch at runtime. */
 static uint8_t s_font_widths[95];
 
+/* WRAM buffer for track titles loaded from the resource bank.
+   31 bytes + 1 for safety (entries are 31-byte null-terminated). */
+static char s_title_buf[32];
+
 /* ── Font reload ──────────────────────────────────────────────────────────── */
 
 /* Reload all tile data into VRAM from the resource bank.
-   LCD MUST be off before calling.  Selects RESOURCE_BANK via MBC1
+   LCD MUST be off before calling.  Selects the resource bank via MBC1
    and leaves it selected on return (caller may continue reading).
 
    In BANKED_CODE mode, the player code lives in the switchable bank
@@ -138,7 +143,7 @@ static void reload_tiles(void) {
     }
 
     /* Condensed font: 95 tiles at VRAM 0x8000 (1520 bytes). */
-    bcopy_params.bank = RESOURCE_BANK;
+    bcopy_params.bank = RESOURCE_BANK_NUM;
     bcopy_params.src  = RES_FONT_DATA;
     bcopy_params.dst  = (uint8_t*)0x8000u;
     bcopy_params.len  = RES_FONT_DATA_SIZE;
@@ -173,7 +178,7 @@ static void reload_tiles(void) {
     const uint8_t *src;
     uint8_t b;
 
-    MBC_BANK_REG = RESOURCE_BANK;
+    MBC_BANK_REG = RESOURCE_BANK_NUM;
 
     /* Condensed font: 95 tiles at VRAM 0x8000 (1520 bytes). */
     src = RES_FONT_DATA;
@@ -243,7 +248,8 @@ static void render_track_row(uint8_t vrow) {
     }
 
     track_idx = vrow - LIST_PAD_TOP;
-    title = TRACK_LIST[track_idx].title;
+    load_track_title(track_idx, s_title_buf);
+    title = s_title_buf;
     tmap[0] = 0u;
 
     for (col = 1u; col < 20u; col++) {
@@ -294,7 +300,8 @@ static void stage_track_row(uint8_t vrow) {
     }
 
     track_idx = vrow - LIST_PAD_TOP;
-    title = TRACK_LIST[track_idx].title;
+    load_track_title(track_idx, s_title_buf);
+    title = s_title_buf;
     s_row_buf[0] = 0u;
 
     for (col = 1u; col < 20u; col++) {
@@ -313,7 +320,7 @@ static void stage_track_row(uint8_t vrow) {
 }
 
 /* Copy the staged buffer to VRAM and update the ring-buffer cache.
-   Called at the very start of VBlank — 20 byte writes ≈ 100 cycles. */
+   Called at the very start of VBlank — 20 byte writes ~ 100 cycles. */
 static void flush_pending(void) {
     uint8_t tmap_row;
     volatile uint8_t *tmap;
@@ -400,7 +407,8 @@ static void draw_name(uint8_t track) {
     }
 
     if (track >= 1u && track <= GBS_NUM_TRACKS) {
-        blit_string(3u, TRACK_LIST[track - 1u].title, SCRATCH_NAME_BASE);
+        load_track_title(track - 1u, s_title_buf);
+        blit_string(3u, s_title_buf, SCRATCH_NAME_BASE);
     }
 
     s_name_track = track;

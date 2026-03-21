@@ -2,10 +2,9 @@
  * GBS Player — main entry point (no GBDK library)
  *
  * Startup sequence is handled by startup.s (_start):
- *   - Stack at 0xFFFE (HRAM)
+ *   - Stack at 0xC300 (temporary)
  *   - WRAM zeroed (0xC000-0xDFFF)
  *   - APU enabled
- *   - Font loaded into VRAM
  *   - LCD enabled
  *   - VBlank interrupt enabled
  *   - Calls main()
@@ -25,7 +24,7 @@
 #include "input.h"
 #include "player.h"
 #include "ui.h"
-#include "generated/playlist_data.h"
+#include "config.h"
 
 static void vbl_wait(void) {
     /* Require BOTH: VBL_FLAG set by ISR AND LY in VBlank range.
@@ -38,12 +37,17 @@ static void vbl_wait(void) {
 
 void main(void) {
     /* Switch SP to the dynamically-chosen safe WRAM region.
+       The player stack pointer is read from the config table at 0x028B.
        startup.s uses a temporary SP (0xC300) for the initial WRAM clear and
        call to main.  We immediately move SP here to avoid conflicting with
        WRAM addresses the GBS sound driver may use.  main() never returns,
        so the lost return address from startup.s is harmless. */
     __asm
-        ld   sp, #PLAYER_STACK_PTR
+        ld   a, (0x028B)          ; player_stack_ptr lo
+        ld   l, a
+        ld   a, (0x028C)          ; player_stack_ptr hi
+        ld   h, a
+        ld   sp, hl
     __endasm;
 
     /* ── Initialise subsystems ────────────────────────────────────────────── */
