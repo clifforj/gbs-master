@@ -1,18 +1,42 @@
 # Architecture
 
-## Build Pipeline - Key steps
+## Build Pipelines
 
-1. **Parse GBS**: Extract header fields (loadAddr, initAddr, playAddr, stackPtr, track count) and determine the ROM offset where GBS data will be embedded.
+Two build pipelines exist: the CLI pipeline (full SDCC compilation) and the web/template pipeline (binary patching of pre-compiled ROMs). Both produce identical ROM layouts.
+
+### CLI Pipeline
+
+1. **Parse GBS**: Extract header fields (loadAddr, initAddr, playAddr, stackPtr, track count) and determine the ROM offset where GBS data will be embedded. The parser (`src/gbs/parse-gbs.ts`) is environment-agnostic (no Node.js dependencies), shared by both CLI and web.
 
 2. **WRAM analysis**: Scan the GBS binary for direct WRAM references to find safe addresses for player variables and stack (see "Dynamic WRAM Placement" below).
 
-3. **Code generation**: Produce `playlist_data.h` (compile-time constants), `playlist_data.c` (track list array), `trampolines.s` (entry point and bank-switching stubs), and `resource_bank.h` (tile data pointers).
+3. **Code generation**: Produce `config.s` (128-byte config table at ROM 0x0280 with GBS addresses, track count, metadata) and `trampolines.s` (entry point and bank-switching stubs). Track data is built as a binary blob (`src/build/track-data.ts`) and placed in the resource bank.
 
-4. **SDCC compilation**: Assemble `startup.s` and `trampolines.s` with sdasgb, compile C files with sdcc (`--nostdlib --no-std-crt0`), link with sdldgb.
+4. **SDCC compilation**: Assemble `startup.s`, `trampolines.s`, and `config.s` with sdasgb, compile C files with sdcc (`--nostdlib --no-std-crt0`), link with sdldgb.
 
 5. **IHX conversion**: Custom `ihxToBinary()` replaces GBDK's `makebin` (which mishandles 32-byte IHX data records). Only ROM-space addresses (0x0000-0x7FFF) are extracted.
 
 6. **GBS embedding**: Allocate a standard-size ROM, copy compiled player code, copy GBS data at `loadAddr - 0x70`, copy resource bank tile data, patch the cartridge header.
+
+### Template Pipeline (Web App)
+
+The web app builds ROMs entirely in the browser by patching pre-compiled template ROMs. No SDCC toolchain is needed at runtime.
+
+1. **Template generation** (`scripts/build-templates.ts`): Run once offline with SDCC to compile 6 template ROMs — 2 modes (standard, banked) × 3 WRAM variants (low, mid, high). Each template contains all player code compiled with placeholder GBS addresses. A `templates/manifest.json` records patch offsets and layout metadata.
+
+2. **GBS parsing**: The browser loads the GBS file and parses it using the shared `parseGbs()` function.
+
+3. **Template selection**: The assembler (`web/src/assembler.ts`) determines banked vs. standard mode and picks the WRAM variant whose `_DATA` pages don't conflict with the GBS driver's WRAM usage.
+
+4. **Binary patching**: The selected template ROM is patched in-place:
+   - **Config table** (128 bytes at 0x0280): GBS addresses, timer settings, track count, resource bank number, stack pointer, album metadata
+   - **Trampoline call targets**: GBS INIT/PLAY addresses at fixed offsets; in banked mode, code bank numbers are also patched
+   - **GBS data**: Embedded at `loadAddr - 0x70` (same as CLI)
+   - **Resource bank**: Font tiles, icons, cover art, and binary track data blob
+
+5. **Cartridge header**: MBC type, ROM size code, and checksums are patched.
+
+The result is a complete `.gb` ROM downloadable from the browser.
 
 ## ROM Layout
 
@@ -67,21 +91,48 @@ The trampolines are always in bank 0 (always mapped at 0x0000-0x3FFF) and handle
 
 The `_TRAMPOLINE` area uses its own area name (not `_STARTUP`) to avoid sdasgb sub-area naming conflicts that cause 1-byte address shifts.
 
+## Runtime Config Table
+
+The C player code reads all GBS-specific values from a 128-byte config table at ROM address 0x0280 (`config.h`). This replaces earlier compile-time `#define` constants and enables template-based building where the web app patches these bytes directly without recompilation.
+
+Key fields (see `config.h` for the full layout):
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0x00 | 2 | GBS init address |
+| 0x02 | 2 | GBS play address |
+| 0x04 | 2 | GBS stack pointer |
+| 0x06 | 1 | Timer modulo |
+| 0x07 | 1 | Timer control |
+| 0x08 | 1 | Use timer flag |
+| 0x09 | 1 | Number of tracks |
+| 0x0A | 1 | Resource bank number |
+| 0x0B | 2 | Player stack pointer |
+| 0x0D | 31 | Album title (null-terminated) |
+| 0x2C | 31 | Album author |
+| 0x4B | 31 | Album copyright |
+
+Track data (titles and GBS track numbers) is stored as a binary blob in the resource bank rather than as compiled C arrays. Each entry is 32 bytes: 1 byte GBS track number + 31 bytes null-terminated title. The `track_data.c` module reads entries from the resource bank via bank-switched access.
+
 ## GBS Compatibility Mechanisms
 
 ### Dynamic WRAM Placement
 
 GBS sound drivers are extracted from running games and use WRAM addresses that the original game allocated. Different games use different WRAM regions, and some drivers read WRAM locations as control flags (e.g. Zelda reads 0xC10B as a playback mode selector). If the player's own variables land on these addresses, the driver malfunctions.
 
-The build tool solves this by scanning the GBS binary for `FA` and `EA` opcodes -- the SM83 instructions for `LD A,(nn)` and `LD (nn),A` with direct 16-bit addresses. Any address in the 0xC000-0xDFFF range (WRAM) is marked as "used by the driver." The scan then finds 3 contiguous 256-byte pages that the driver does not reference, and places:
+The build tool solves this by scanning the GBS binary for `FA` and `EA` opcodes -- the SM83 instructions for `LD A,(nn)` and `LD (nn),A` with direct 16-bit addresses. Any address in the 0xC000-0xDFFF range (WRAM) is marked as "used by the driver."
+
+**CLI builds** find 3 contiguous 256-byte pages that the driver does not reference, and place:
 
 - `_DATA` section (player variables) at page N
 - `_INITIALIZED` section at page N+1
 - Player stack (growing downward) at the top of page N+2
 
-These addresses are passed to the SDCC linker (`-b _DATA=...`, `-b _INITIALIZED=...`) and emitted into `playlist_data.h` as `PLAYER_STACK_PTR`. The `main()` function overrides SP at entry.
+These addresses are passed to the SDCC linker (`-b _DATA=...`, `-b _INITIALIZED=...`) and written into `config.s` as the player stack pointer. The `main()` function overrides SP at entry.
 
 If no 3-page free block exists, the tool falls back to the legacy default (DATA=0xC100, STACK=0xC300) with a warning.
+
+**Template/web builds** use a fixed set of 3 WRAM variants (low=0xC100, mid=0xC600, high=0xD700). Each variant is a separate pre-compiled template ROM since variable addresses are baked into machine code and cannot be relocated at runtime. The web assembler picks the first variant whose `_DATA` pages don't conflict with the GBS driver. The stack pointer is the one value that can be patched at runtime (via the config table) since it's loaded from ROM at startup rather than compiled in.
 
 ### HRAM Zeroing
 
@@ -169,3 +220,33 @@ All tile data (both fonts, icons, cover art) lives in a dedicated ROM bank. At s
 ### VRAM write strategy
 
 Bulk VRAM writes (font loading, track name blitting, full-screen redraws) always disable the LCD first. VRAM is only accessible during VBlank or when the LCD is off; trying to write during active display silently drops writes. Cycle-counting to stay within VBlank budget is unreliable with SDCC-generated code, so LCD disable is the robust approach.
+
+## Source Organization
+
+### Shared modules (used by both CLI and web)
+
+Code that runs in both Node.js and the browser has no Node.js dependencies:
+
+- `src/gbs/parse-gbs.ts` — GBS file parser (operates on `Uint8Array`, no `Buffer`)
+- `src/gbs/types.ts` — GBS type definitions
+- `src/build/track-data.ts` — Builds binary track data blob from playlist
+- `src/build/wram.ts` — WRAM page scanner
+- `src/build/checksum.ts` — GB cartridge header/global checksum
+
+### CLI-only modules
+
+- `src/gbs/parser.ts` — Node.js wrapper around `parse-gbs.ts` (reads files from disk)
+- `src/build/codegen.ts` — Generates `config.s` and `trampolines.s` assembly files
+- `src/build/builder.ts` — Orchestrates the full CLI build (SDCC invocation, IHX conversion, GBS embedding)
+- `scripts/build-templates.ts` — Generates the 6 template ROMs for the web app
+
+### Web app (`web/`)
+
+- `web/src/main.ts` — Entry point: file upload, GBS parsing, playlist editing UI, ROM download
+- `web/src/assembler.ts` — Template ROM patching: config table, trampolines, GBS data, resource bank
+- `web/src/assets/tile-data.ts` — Pre-encoded font, icon, and cover tile data as TypeScript constants
+
+### Template system (`templates/`)
+
+- `templates/manifest.json` — Describes all template variants, patch offsets, and resource bank layout
+- `templates/template-{standard,banked}-{low,mid,high}.gb` — Pre-compiled template ROMs (6 total)

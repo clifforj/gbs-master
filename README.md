@@ -17,12 +17,23 @@ GBS (Game Boy Sound) files contain extracted music data and sound drivers from o
 
 The ROM is compiled from C and assembly source using SDCC (no GBDK library) to avoid memory conflicts with GBS sound drivers.
 
+There are two ways to build ROMs:
+
+- **CLI** (Node.js + SDCC) — full build pipeline, compiles from source
+- **Web app** — runs entirely in the browser using pre-compiled template ROMs, no toolchain needed
+
 ## Requirements
+
+### CLI builds
 
 - **[Node.js](https://nodejs.org/)** 20+
 - **[GBDK-2020](https://github.com/gbdk-2020/gbdk-2020)** -- only the SDCC toolchain binaries are used (`sdcc`, `sdasgb`, `sdldgb`). The GBDK library itself is not used.
 
-### Installing GBDK-2020
+### Web app
+
+- A modern browser (no other dependencies)
+
+### Installing GBDK-2020 (CLI only)
 
 1. Download the latest release for your platform from the [GBDK-2020 releases page](https://github.com/gbdk-2020/gbdk-2020/releases).
 2. Extract the archive to a location of your choice (e.g. `~/gbdk` or `C:\gbdk`).
@@ -35,10 +46,20 @@ export GBDK_HOME=~/gbdk
 
 ## Quick start
 
+### CLI
+
 ```bash
 npm install
 npm run build:rom -- <file.gbs> -o player.gb --gbdk-home /path/to/gbdk
 ```
+
+### Web app
+
+```bash
+cd web && npm install && npm run dev
+```
+
+Open the local URL in your browser, drop a `.gbs` file, edit track names, and download the ROM. No SDCC toolchain required.
 
 ## CLI reference
 
@@ -94,7 +115,13 @@ All PNGs use the GBStudio Classic palette: `#E0F8CF` (white), `#87C06A` (light g
 
 ## How it works
 
-The build tool parses the GBS header, generates C source with track metadata as compile-time constants, compiles a Game Boy ROM using SDCC, then embeds the GBS music data at the correct ROM offset and patches the cartridge header. The GBS sound driver runs natively -- the player just calls its INIT and PLAY entry points each frame.
+### CLI pipeline
+
+The build tool parses the GBS header, generates an assembly config table and trampoline stubs, compiles a Game Boy ROM using SDCC, then embeds the GBS music data at the correct ROM offset and patches the cartridge header. The GBS sound driver runs natively -- the player just calls its INIT and PLAY entry points each frame.
+
+### Web app pipeline
+
+The web app uses pre-compiled template ROMs (built once with `npx tsx scripts/build-templates.ts`). At runtime it parses the GBS file in the browser, selects the right template based on banked/non-banked mode and WRAM variant, then binary-patches the config table, trampoline call targets, GBS data, and resource bank directly into the template. No compilation step is needed.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
 
