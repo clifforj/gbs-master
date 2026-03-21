@@ -4,6 +4,8 @@
 
 Builds a Game Boy ROM (.gb) music player from any GBS sound file, with optional playlists and cover art.
 
+### **[>>> Try it in your browser — no install required <<<](https://clifforj.github.io/gb-master/)**
+
 ## What it does
 
 GBS (Game Boy Sound) files contain extracted music data and sound drivers from original Game Boy games. This tool takes a `.gbs` file and produces a playable `.gb` ROM with:
