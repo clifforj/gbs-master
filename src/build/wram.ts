@@ -13,7 +13,7 @@ export interface WramLayout {
 /** Default layout — works when GBS doesn't conflict with 0xC100-0xC300. */
 export const DEFAULT_WRAM_LAYOUT: WramLayout = {
   dataAddr: 0xC100,
-  initializedAddr: 0xC1A0,
+  initializedAddr: 0xC1C0,
   stackAddr: 0xC300,
 };
 
@@ -29,7 +29,7 @@ export const DEFAULT_WRAM_LAYOUT: WramLayout = {
  * without full emulation, but direct accesses cover the vast majority of
  * GBS driver WRAM usage patterns.
  */
-export function scanGbsWramPages(gbsData: Buffer): Set<number> {
+export function scanGbsWramPages(gbsData: Uint8Array): Set<number> {
   const code = gbsData.subarray(0x70); // skip GBS header
   const used = new Set<number>();
 
@@ -76,7 +76,7 @@ export function findSafeWramLayout(usedPages: Set<number>, stackPtr: number): Wr
         const base = runStart << 8;
         return {
           dataAddr: base,
-          initializedAddr: base + 0xA0,
+          initializedAddr: base + 0xC0,
           stackAddr: base + (NEED * 0x100),
         };
       }
