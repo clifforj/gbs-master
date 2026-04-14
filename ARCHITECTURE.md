@@ -8,7 +8,7 @@ Two build pipelines exist: the CLI pipeline (full SDCC compilation) and the web/
 
 1. **Parse GBS**: Extract header fields (loadAddr, initAddr, playAddr, stackPtr, track count) and determine the ROM offset where GBS data will be embedded. The parser (`src/gbs/parse-gbs.ts`) is environment-agnostic (no Node.js dependencies), shared by both CLI and web.
 
-2. **WRAM analysis**: Scan the GBS binary for direct WRAM references to find safe addresses for player variables and stack (see "Dynamic WRAM Placement" below).
+2. **WRAM analysis**: Scan the GBS binary for direct WRAM references, then find safe addresses for the player's variables, stack, and track cache regions (see "Dynamic WRAM Placement" below).
 
 3. **Code generation**: Produce `config.s` (128-byte config table at ROM 0x0280 with GBS addresses, track count, metadata) and `trampolines.s` (entry point and bank-switching stubs). Track data is built as a binary blob (`src/build/track-data.ts`) and placed in the resource bank.
 
@@ -29,7 +29,7 @@ The web app builds ROMs entirely in the browser by patching pre-compiled templat
 3. **Template selection**: The assembler (`web/src/assembler.ts`) determines banked vs. standard mode and picks the WRAM variant whose `_DATA` pages don't conflict with the GBS driver's WRAM usage.
 
 4. **Binary patching**: The selected template ROM is patched in-place:
-   - **Config table** (128 bytes at 0x0280): GBS addresses, timer settings, track count, resource bank number, stack pointer, album metadata
+   - **Config table** (128 bytes at 0x0280): GBS addresses, timer settings, track count, resource bank number, stack pointer, album metadata, and the variable-length track cache region table (computed per-GBS by the same allocator the CLI uses)
    - **Trampoline call targets**: GBS INIT/PLAY addresses at fixed offsets; in banked mode, code bank numbers are also patched
    - **GBS data**: Embedded at `loadAddr - 0x70` (same as CLI)
    - **Resource bank**: Font tiles, icons, cover art, and binary track data blob
@@ -111,8 +111,11 @@ Key fields (see `config.h` for the full layout):
 | 0x0D | 31 | Album title (null-terminated) |
 | 0x2C | 31 | Album author |
 | 0x4B | 31 | Album copyright |
+| 0x6A | 22 | Track cache region table (see below) |
 
-Track data (titles and GBS track numbers) is stored as a binary blob in the resource bank rather than as compiled C arrays. Each entry is 32 bytes: 1 byte GBS track number + 31 bytes null-terminated title. The `track_data.c` module reads entries from the resource bank via bank-switched access.
+The cache region table is a variable-length list of `{addr u16 LE, capacity u8}` entries terminated by `capacity == 0`. It tells `track_data.c` where in WRAM to place the runtime track metadata cache. The 22-byte budget allows up to 7 regions (6 entries + terminator), which comfortably covers every GBS file tested so far including heavily fragmented layouts.
+
+Track data (titles and GBS track numbers) is stored as a binary blob in the resource bank. Each entry is 32 bytes: 1 byte GBS track number + 31 bytes null-terminated title. At startup, `track_data.c` copies every entry from the resource bank into WRAM (walking the cache region table) and reads from WRAM thereafter — see "Track Cache in WRAM" below for the rationale.
 
 ## GBS Compatibility Mechanisms
 
@@ -122,17 +125,28 @@ GBS sound drivers are extracted from running games and use WRAM addresses that t
 
 The build tool solves this by scanning the GBS binary for `FA` and `EA` opcodes -- the SM83 instructions for `LD A,(nn)` and `LD (nn),A` with direct 16-bit addresses. Any address in the 0xC000-0xDFFF range (WRAM) is marked as "used by the driver."
 
-**CLI builds** find 3 contiguous 256-byte pages that the driver does not reference, and place:
+The player needs two kinds of WRAM storage:
 
-- `_DATA` section (player variables) at page N
-- `_INITIALIZED` section at page N+1
-- Player stack (growing downward) at the top of page N+2
+- A **2-page player slot** holding `_DATA` (page N), `_INITIALIZED` (still within page N), and the player stack at page N+1 (growing downward from the top).
+- A **track cache** of up to 12 pages (96 entries × 32 bytes) holding track titles and GBS track numbers, populated once at startup and read from thereafter.
 
-These addresses are passed to the SDCC linker (`-b _DATA=...`, `-b _INITIALIZED=...`) and written into `config.s` as the player stack pointer. The `main()` function overrides SP at entry.
+**CLI builds** run `findSafeWramLayout` in `src/build/wram.ts`:
 
-If no 3-page free block exists, the tool falls back to the legacy default (DATA=0xC100, STACK=0xC300) with a warning.
+1. Scan for free pages in 0xC1–0xDE.
+2. Carve the 2-page player slot out of the **smallest** run that can host it, preserving longer runs for the cache.
+3. Fill cache regions **largest-first** from what remains, until the track count is met or WRAM is exhausted. Fragmented free WRAM is handled automatically — the cache can span an arbitrary number of non-contiguous regions.
 
-**Template/web builds** use a fixed set of 3 WRAM variants (low=0xC100, mid=0xC600, high=0xD700). Each variant is a separate pre-compiled template ROM since variable addresses are baked into machine code and cannot be relocated at runtime. The web assembler picks the first variant whose `_DATA` pages don't conflict with the GBS driver. The stack pointer is the one value that can be patched at runtime (via the config table) since it's loaded from ROM at startup rather than compiled in.
+These addresses are passed to the SDCC linker (`-b _DATA=...`, `-b _INITIALIZED=...`) and written into `config.s` (stack pointer + cache region table). If cache capacity is less than the track count, the track list is clamped and a warning is emitted; the dropped tracks still play if navigated to manually.
+
+**Template/web builds** use a fixed set of 3 WRAM variants (low=0xC100, mid=0xC600, high=0xD700). Each variant is a separate pre-compiled template ROM since `_DATA` / `_INITIALIZED` addresses are baked into machine code and cannot be relocated at runtime. The web assembler picks the first variant whose player pages don't conflict with the GBS driver, then runs `findCacheRegions` (the same allocator the CLI uses) over the remaining free WRAM to compute cache regions for this specific GBS. Both the stack pointer and cache region table are patched into the config table at runtime — only the player slot's base addresses are fixed.
+
+### Track Cache in WRAM
+
+Early builds read track titles directly from the resource bank, switching the MBC1 bank register for each lookup. This broke two Pokemon GBS files (Blue and Gold) whose drivers track state that depends on the bank register remaining stable — track 2 of Blue would not play, and Gold crashed partway through its track list.
+
+The fix: `track_data_init()` runs once during startup, copies every cache entry from the resource bank into WRAM (via `_banked_copy` in banked mode, or a direct bank switch followed by a restore in non-banked mode), and all subsequent reads (`load_track_title`, `get_gbs_track_number`) access WRAM only. No bank switching occurs outside the one-shot init.
+
+Because some drivers leave only heavily fragmented free WRAM (Pokemon Gold's largest free run is 6 pages, yet total free capacity is ample), the cache is split across a variable-length list of regions rather than requiring one contiguous block. `track_data.c` walks the region table in `config.h` by index-division: `while (idx >= p[2]) { idx -= p[2]; p += 3; }`.
 
 ### HRAM Zeroing
 
@@ -230,7 +244,7 @@ Code that runs in both Node.js and the browser has no Node.js dependencies:
 - `src/gbs/parse-gbs.ts` — GBS file parser (operates on `Uint8Array`, no `Buffer`)
 - `src/gbs/types.ts` — GBS type definitions
 - `src/build/track-data.ts` — Builds binary track data blob from playlist
-- `src/build/wram.ts` — WRAM page scanner
+- `src/build/wram.ts` — WRAM page scanner and cache-region allocator (`findSafeWramLayout`, `findCacheRegions`)
 - `src/build/checksum.ts` — GB cartridge header/global checksum
 
 ### CLI-only modules
