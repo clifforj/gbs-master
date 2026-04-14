@@ -83,6 +83,8 @@ describe("generateConfig", () => {
         dataAddr: 0xC500,
         initializedAddr: 0xC5A0,
         stackAddr: 0xC800,
+        cacheRegions: [{ addr: 0xC900, capacity: 96 }],
+        cacheTotalCapacity: 96,
       },
     });
 

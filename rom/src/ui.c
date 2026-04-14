@@ -115,9 +115,8 @@ static uint8_t s_name_track = 0u;
    needs to bank-switch at runtime. */
 static uint8_t s_font_widths[95];
 
-/* WRAM buffer for track titles loaded from the resource bank.
-   31 bytes + 1 for safety (entries are 31-byte null-terminated). */
-static char s_title_buf[32];
+/* Scratch buffer for a single track title loaded from the cache. */
+static char s_title_buf[TRACK_CACHE_TITLE_MAX];
 
 /* ── Font reload ──────────────────────────────────────────────────────────── */
 

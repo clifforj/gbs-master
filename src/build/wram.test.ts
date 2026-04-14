@@ -80,17 +80,16 @@ describe("findSafeWramLayout", () => {
     // Should find a valid 3-page block
     const basePage = result.dataAddr >> 8;
     assert.ok(basePage >= 0xC1 && basePage <= 0xDE);
-    assert.equal(result.stackAddr, result.dataAddr + 0x300);
+    assert.equal(result.stackAddr, result.dataAddr + 0x200);
   });
 
   it("relocates when pages 0xC1-0xC3 are all used", () => {
     const used = new Set<number>([0xC1, 0xC2, 0xC3]);
     const result = findSafeWramLayout(used, 0xDFFF);
     assert.notDeepEqual(result, DEFAULT_WRAM_LAYOUT);
-    // The block should not overlap with 0xC1-0xC3
+    // The player block should not overlap with 0xC1-0xC3
     const basePage = result.dataAddr >> 8;
-    const endPage = basePage + 2;
-    for (let p = basePage; p <= endPage; p++) {
+    for (let p = basePage; p < basePage + 2; p++) {
       assert.ok(!used.has(p), `layout should not overlap used page 0x${p.toString(16)}`);
     }
   });

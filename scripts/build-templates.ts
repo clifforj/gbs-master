@@ -27,6 +27,7 @@ import { ihxToBinary } from "../src/build/ihx.js";
 import type { ParsedGbs } from "../src/gbs/types.js";
 import type { Track } from "../src/playlist/types.js";
 import type { WramLayout } from "../src/build/wram.js";
+import { CACHE_MAX_TRACKS } from "../src/build/wram.js";
 import type { BankedCodeOptions } from "../src/build/codegen.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -49,7 +50,12 @@ const OUTPUT_DIR = join(PROJECT_ROOT, "templates");
  */
 interface WramVariant {
   key: string;
-  wram: WramLayout;
+  /** Baked-in _DATA address. */
+  dataAddr: number;
+  /** Baked-in _INITIALIZED address. */
+  initializedAddr: number;
+  /** Default stack address — may be re-patched at runtime. */
+  defaultStackAddr: number;
   /** Pages that must be free for this variant to work. */
   dataPages: number[];
 }
@@ -57,20 +63,31 @@ interface WramVariant {
 const WRAM_VARIANTS: WramVariant[] = [
   {
     key: "low",
-    wram: { dataAddr: 0xC100, initializedAddr: 0xC1C0, stackAddr: 0xC300 },
+    dataAddr: 0xC100, initializedAddr: 0xC1C0, defaultStackAddr: 0xC300,
     dataPages: [0xC1, 0xC2],
   },
   {
     key: "mid",
-    wram: { dataAddr: 0xC600, initializedAddr: 0xC6C0, stackAddr: 0xC800 },
+    dataAddr: 0xC600, initializedAddr: 0xC6C0, defaultStackAddr: 0xC800,
     dataPages: [0xC6, 0xC7],
   },
   {
     key: "high",
-    wram: { dataAddr: 0xD700, initializedAddr: 0xD7C0, stackAddr: 0xD900 },
+    dataAddr: 0xD700, initializedAddr: 0xD7C0, defaultStackAddr: 0xD900,
     dataPages: [0xD7, 0xD8],
   },
 ];
+
+/** Build the WramLayout used for template compilation (placeholder cache). */
+function templateWramLayout(v: WramVariant): WramLayout {
+  return {
+    dataAddr: v.dataAddr,
+    initializedAddr: v.initializedAddr,
+    stackAddr: v.defaultStackAddr,
+    cacheRegions: [{ addr: v.defaultStackAddr, capacity: CACHE_MAX_TRACKS }],
+    cacheTotalCapacity: CACHE_MAX_TRACKS,
+  };
+}
 
 /** Placeholder GBS for generating template config/trampolines. */
 function placeholderGbs(): ParsedGbs {
@@ -157,7 +174,7 @@ async function buildTemplate(
   // Generate placeholder config.s and trampolines.s.
   const gbs = placeholderGbs();
   await generateConfig(gbs, PLACEHOLDER_TRACKS, genDir, {
-    wram: variant.wram,
+    wram: templateWramLayout(variant),
     resourceBank: 2,
   });
   await generateTrampolines(
@@ -195,8 +212,8 @@ async function buildTemplate(
 
   // Link.
   console.log("  Linking...");
-  const dataHex = "0x" + variant.wram.dataAddr.toString(16).toUpperCase();
-  const initHex = "0x" + variant.wram.initializedAddr.toString(16).toUpperCase();
+  const dataHex = "0x" + variant.dataAddr.toString(16).toUpperCase();
+  const initHex = "0x" + variant.initializedAddr.toString(16).toUpperCase();
   const objs = ["startup", "trampolines", "config", "main", "player", "ui", "input", "track_data"]
     .map((n) => `"${join(buildDir, n + ".rel")}"`)
     .join(" ");
@@ -238,7 +255,9 @@ async function main(): Promise<void> {
         codeAddr: parseInt(mode.codeAddr, 16),
         bankedCode: mode.bankedCode.enabled,
         codeBankNum: mode.bankedCode.codeBankNum,
-        wram: variant.wram,
+        dataAddr: variant.dataAddr,
+        initializedAddr: variant.initializedAddr,
+        defaultStackAddr: variant.defaultStackAddr,
         dataPages: variant.dataPages,
       };
     }
@@ -248,13 +267,17 @@ async function main(): Promise<void> {
   const manifest = {
     wramVariants: WRAM_VARIANTS.map(v => ({
       key: v.key,
-      wram: v.wram,
+      dataAddr: v.dataAddr,
+      initializedAddr: v.initializedAddr,
+      defaultStackAddr: v.defaultStackAddr,
       dataPages: v.dataPages,
     })),
     templates: templateEntries,
     patchOffsets: {
       configTable: 0x0280,
       configTableSize: 128,
+      cacheTableOffset: 0x6A,
+      cacheTableMaxBytes: 22,
       trampolineInitCall: { standard: 0x0204, banked: null },
       trampolinePlayCall: { standard: 0x0208, banked: null },
     },

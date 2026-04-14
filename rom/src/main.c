@@ -25,6 +25,7 @@
 #include "player.h"
 #include "ui.h"
 #include "config.h"
+#include "track_data.h"
 
 static void vbl_wait(void) {
     /* Require BOTH: VBL_FLAG set by ISR AND LY in VBlank range.
@@ -53,6 +54,13 @@ void main(void) {
     /* ── Initialise subsystems ────────────────────────────────────────────── */
     input_init();
     player_init();
+
+    /* ── Populate the track-data WRAM cache ──────────────────────────────
+       Must happen BEFORE ui_init() (which reads titles to draw the list)
+       and BEFORE the first GBS INIT.  After INIT runs, bank switching is
+       unsafe: some drivers track the active ROM bank in WRAM and
+       clobbering the MBC register desyncs that state. */
+    track_data_init();
 
     /* ── Draw initial UI ─────────────────────────────────────────────────── */
     vbl_wait();

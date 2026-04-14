@@ -51,7 +51,22 @@ export async function generateConfig(
   const { header } = gbs;
 
   const stackAddr = overrides?.wram?.stackAddr ?? 0xC300;
+  const cacheRegions = overrides?.wram?.cacheRegions
+    ?? [{ addr: 0xC300, capacity: 96 }];
   const resBank = overrides?.resourceBank ?? 2;
+
+  /* Cache table lives at config offset 0x6A.  Each region takes 3 bytes
+     (addr u16 + capacity u8).  A trailing capacity=0 byte terminates the
+     list.  The table + 1-byte terminator must fit in the 22 bytes from
+     0x6A to 0x7F. */
+  const CACHE_TABLE_BYTES = 128 - 0x6A; // 22
+  const tableBytes = cacheRegions.length * 3 + 1;
+  if (tableBytes > CACHE_TABLE_BYTES) {
+    throw new Error(
+      `Cache region table too big: ${cacheRegions.length} regions need ` +
+      `${tableBytes} config bytes, but only ${CACHE_TABLE_BYTES} are available.`
+    );
+  }
 
   const title = toAscii(overrides?.title ?? header.title);
   const author = toAscii(header.author);
@@ -81,8 +96,14 @@ export async function generateConfig(
     ...asmStringField(author, MAX_AUTHOR_LEN),
     `    ; +0x4B: album_copyright (31 bytes, null-terminated)`,
     ...asmStringField(copyright, MAX_TITLE_LEN),
+    `    ; +0x6A: track_cache_table (addr u16, capacity u8 per region;`,
+    `    ;        terminated by capacity = 0)`,
+    ...cacheRegions.map((r, i) =>
+      `    .dw #${hex16(r.addr)}\n    .db #${r.capacity}           ; region ${i}`
+    ),
+    `    .db #0             ; cache table terminator`,
     `    ; Pad to 128 bytes total (0x0280 + 0x80 = 0x0300)`,
-    `    .ds ${128 - 0x6A}`,
+    `    .ds ${CACHE_TABLE_BYTES - tableBytes}`,
     "",
   ];
 

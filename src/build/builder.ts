@@ -140,9 +140,9 @@ interface GbsAnalysis {
  * for the player's variables and stack, and checks whether the GBS data
  * would overlap the player's _CODE section in bank 0.
  */
-function analyzeGbs(gbs: ParsedGbs): GbsAnalysis {
+function analyzeGbs(gbs: ParsedGbs, numTracks: number): GbsAnalysis {
   const usedPages = scanGbsWramPages(gbs.raw);
-  const wram = findSafeWramLayout(usedPages, gbs.header.stackPtr);
+  const wram = findSafeWramLayout(usedPages, gbs.header.stackPtr, numTracks);
 
   // If the GBS data starts below 0x2000 in the ROM, _CODE (at 0x0380,
   // ~2.5-3 KB) would be overwritten by the GBS data. Place _CODE in a
@@ -225,20 +225,30 @@ export async function build(options: BuildOptions): Promise<void> {
   // ── Step 2: Resolve track list ────────────────────────────────────────────
   console.log("[2/6] Resolving track list...");
   const playlist = playlistPath ? await loadPlaylist(playlistPath) : undefined;
-  const tracks = resolveTrackList(gbs, playlist);
-  const namedTracks = tracks.filter((t) => !t.title.startsWith("Track ")).length;
+  const rawTracks = resolveTrackList(gbs, playlist);
+  const namedTracks = rawTracks.filter((t) => !t.title.startsWith("Track ")).length;
   console.log(
-    `      ${tracks.length} tracks` +
+    `      ${rawTracks.length} tracks` +
       (namedTracks > 0 ? `, ${namedTracks} with custom titles` : " (no playlist — using placeholders)")
   );
 
   // ── Step 3: Analyse GBS and generate code + assets ────────────────────────
-  const { wram, bankedCode } = analyzeGbs(gbs);
+  const { wram, bankedCode } = analyzeGbs(gbs, rawTracks.length);
+
+  // Drop any tracks that can't fit in the WRAM cache — the ROM only renders
+  // (and can only play) what the cache holds.  The allocator already warned.
+  const tracks = rawTracks.length > wram.cacheTotalCapacity
+    ? rawTracks.slice(0, wram.cacheTotalCapacity)
+    : rawTracks;
 
   if (wram !== DEFAULT_WRAM_LAYOUT) {
+    const hex = (n: number) => n.toString(16).toUpperCase();
+    const cacheStr = wram.cacheRegions.length === 1
+      ? `CACHE=0x${hex(wram.cacheRegions[0].addr)}`
+      : `CACHE=${wram.cacheRegions.map(r => `0x${hex(r.addr)}(${r.capacity})`).join("+")}`;
     console.log(
-      `      WRAM layout: DATA=0x${wram.dataAddr.toString(16).toUpperCase()}, ` +
-      `STACK=0x${wram.stackAddr.toString(16).toUpperCase()} ` +
+      `      WRAM layout: DATA=0x${hex(wram.dataAddr)}, ` +
+      `STACK=0x${hex(wram.stackAddr)}, ${cacheStr} ` +
       `(GBS uses pages that conflict with default)`
     );
   }

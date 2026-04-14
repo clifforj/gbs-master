@@ -12,8 +12,8 @@
  */
 
 import type { ParsedGbs } from "../../src/gbs/types.js";
-import { scanGbsWramPages } from "../../src/build/wram.js";
-import type { WramLayout } from "../../src/build/wram.js";
+import { scanGbsWramPages, findCacheRegions } from "../../src/build/wram.js";
+import type { WramLayout, CacheRegion } from "../../src/build/wram.js";
 import { headerChecksum, globalChecksum } from "../../src/build/checksum.js";
 import { buildTrackData } from "../../src/build/track-data.js";
 import type { Track } from "../../src/playlist/types.js";
@@ -32,30 +32,36 @@ const BANK_SIZE = 0x4000;
 /**
  * WRAM layout variants — must match scripts/build-templates.ts.
  * Each variant places _DATA at a different address to avoid conflicts
- * with GBS drivers.  Variable addresses are baked into compiled machine code
- * and cannot be relocated at runtime.  Only the stack pointer is patchable.
+ * with GBS drivers.  The _DATA / _INITIALIZED addresses are baked into
+ * compiled machine code and cannot be relocated at runtime.  Stack pointer
+ * and cache regions ARE runtime-patchable via the config table.
  */
 export interface WramVariant {
   key: string;
-  wram: WramLayout;
-  /** WRAM pages that must be free for this variant's _DATA to be safe. */
+  /** Baked-in _DATA address (not patchable). */
+  dataAddr: number;
+  /** Baked-in _INITIALIZED address (not patchable). */
+  initializedAddr: number;
+  /** Default stack address — patched per-GBS if it conflicts. */
+  defaultStackAddr: number;
+  /** WRAM pages consumed by this variant's player block (must be free). */
   dataPages: number[];
 }
 
 export const WRAM_VARIANTS: WramVariant[] = [
   {
     key: "low",
-    wram: { dataAddr: 0xC100, initializedAddr: 0xC1C0, stackAddr: 0xC300 },
+    dataAddr: 0xC100, initializedAddr: 0xC1C0, defaultStackAddr: 0xC300,
     dataPages: [0xC1, 0xC2],
   },
   {
     key: "mid",
-    wram: { dataAddr: 0xC600, initializedAddr: 0xC6C0, stackAddr: 0xC800 },
+    dataAddr: 0xC600, initializedAddr: 0xC6C0, defaultStackAddr: 0xC800,
     dataPages: [0xC6, 0xC7],
   },
   {
     key: "high",
-    wram: { dataAddr: 0xD700, initializedAddr: 0xD7C0, stackAddr: 0xD900 },
+    dataAddr: 0xD700, initializedAddr: 0xD7C0, defaultStackAddr: 0xD900,
     dataPages: [0xD7, 0xD8],
   },
 ];
@@ -76,6 +82,8 @@ const CFG_PLAYER_STACK = 0x0B; // 2 bytes LE
 const CFG_ALBUM_TITLE  = 0x0D; // 31 bytes null-terminated
 const CFG_ALBUM_AUTHOR = 0x2C; // 31 bytes null-terminated
 const CFG_ALBUM_COPY   = 0x4B; // 31 bytes null-terminated
+const CFG_CACHE_TABLE  = 0x6A; // variable length {addr u16, cap u8}*, cap=0 terminator
+const CFG_CACHE_TABLE_BYTES = 128 - CFG_CACHE_TABLE; // 22
 
 /**
  * Trampoline patch offsets within bank 0.
@@ -188,7 +196,7 @@ export function assembleRom(options: AssembleOptions): AssembleResult {
   const wramConflicts = wramVariant.dataPages.some(p => usedPages.has(p));
 
   // Stack: use variant default unless the GBS driver conflicts with that page.
-  let playerStackAddr = wramVariant.wram.stackAddr;
+  let playerStackAddr = wramVariant.defaultStackAddr;
   const stackPage = playerStackAddr >> 8;
   if (usedPages.has(stackPage)) {
     for (let p = stackPage + 1; p <= 0xDE; p++) {
@@ -198,7 +206,24 @@ export function assembleRom(options: AssembleOptions): AssembleResult {
       }
     }
   }
-  const wram: WramLayout = { ...wramVariant.wram, stackAddr: playerStackAddr };
+
+  // Reserve the variant's player pages + stack page, then find cache regions
+  // in the remaining free WRAM.  Clamp track list to what fits.
+  const reserved = new Set(usedPages);
+  for (const p of wramVariant.dataPages) reserved.add(p);
+  reserved.add(playerStackAddr >> 8);
+  const { cacheRegions, cacheTotalCapacity } = findCacheRegions(reserved, tracks.length);
+  const clampedTracks = cacheTotalCapacity > 0
+    ? tracks.slice(0, Math.min(tracks.length, cacheTotalCapacity))
+    : tracks;
+
+  const wram: WramLayout = {
+    dataAddr: wramVariant.dataAddr,
+    initializedAddr: wramVariant.initializedAddr,
+    stackAddr: playerStackAddr,
+    cacheRegions,
+    cacheTotalCapacity,
+  };
 
   // 2. Determine code bank (banked mode only)
   let codeBankNum = options.codeBankNum ?? 0;
@@ -208,8 +233,8 @@ export function assembleRom(options: AssembleOptions): AssembleResult {
     codeBankNum = lastGbsBank + 1;
   }
 
-  // 3. Build track data blob
-  const trackData = buildTrackData(tracks);
+  // 3. Build track data blob (clamped to cache capacity).
+  const trackData = buildTrackData(clampedTracks);
 
   // 4. Calculate resource bank
   const gbsEnd = gbsRomOffset + gbsBytes.length;
@@ -260,12 +285,13 @@ export function assembleRom(options: AssembleOptions): AssembleResult {
     timerModulo: header.timerModulo,
     timerControl: header.timerControl,
     useTimer: gbs.usesTimerInterrupt,
-    numTracks: tracks.length,
+    numTracks: clampedTracks.length,
     resourceBank,
     playerStackPtr: wram.stackAddr,
     albumTitle: options.albumTitle ?? header.title,
     albumAuthor: header.author,
     albumCopyright: header.copyright,
+    cacheRegions,
   });
 
   // 9. Patch trampoline call targets
@@ -324,6 +350,7 @@ interface ConfigValues {
   albumTitle: string;
   albumAuthor: string;
   albumCopyright: string;
+  cacheRegions: CacheRegion[];
 }
 
 function patchConfigTable(rom: Uint8Array, cfg: ConfigValues): void {
@@ -342,6 +369,22 @@ function patchConfigTable(rom: Uint8Array, cfg: ConfigValues): void {
   writeAsciiField(rom, base + CFG_ALBUM_TITLE, cfg.albumTitle, 30);
   writeAsciiField(rom, base + CFG_ALBUM_AUTHOR, cfg.albumAuthor, 30);
   writeAsciiField(rom, base + CFG_ALBUM_COPY, cfg.albumCopyright, 30);
+
+  // Variable-length cache table: {addr u16 LE, capacity u8}* + capacity=0 terminator.
+  const bytesNeeded = cfg.cacheRegions.length * 3 + 1;
+  if (bytesNeeded > CFG_CACHE_TABLE_BYTES) {
+    throw new Error(
+      `Cache region table too big: ${cfg.cacheRegions.length} regions need ` +
+      `${bytesNeeded} config bytes, but only ${CFG_CACHE_TABLE_BYTES} are available.`,
+    );
+  }
+  let off = base + CFG_CACHE_TABLE;
+  for (const r of cfg.cacheRegions) {
+    writeU16LE(rom, off, r.addr);
+    rom[off + 2] = r.capacity;
+    off += 3;
+  }
+  rom[off] = 0; // terminator (fill-zero above already did this, but be explicit)
 }
 
 function patchTrampolineBanked(

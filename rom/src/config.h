@@ -29,6 +29,13 @@
 #define CFG_OFF_ALBUM_TITLE      0x0D  /* char[31] null-terminated */
 #define CFG_OFF_ALBUM_AUTHOR     0x2C  /* char[31] null-terminated */
 #define CFG_OFF_ALBUM_COPYRIGHT  0x4B  /* char[31] null-terminated */
+/* Variable-length cache region table.  Each entry is 3 bytes:
+ *   +0: addr (uint16 LE)   +2: capacity (uint8, # of 32-byte entries)
+ * The list is terminated by an entry with capacity == 0.  The build tool
+ * emits as many entries as the WRAM layout requires, packed in iteration
+ * order — entries [0 .. caps[0]) live in region 0, etc. */
+#define CFG_OFF_CACHE_TABLE      0x6A
+#define CFG_CACHE_REGION_SIZE    3u
 
 /* ── Convenient runtime accessors ────────────────────────────────────────── */
 #define GBS_NUM_TRACKS    CFG_U8(CFG_OFF_NUM_TRACKS)

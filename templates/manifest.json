@@ -2,11 +2,9 @@
   "wramVariants": [
     {
       "key": "low",
-      "wram": {
-        "dataAddr": 49408,
-        "initializedAddr": 49600,
-        "stackAddr": 49920
-      },
+      "dataAddr": 49408,
+      "initializedAddr": 49600,
+      "defaultStackAddr": 49920,
       "dataPages": [
         193,
         194
@@ -14,11 +12,9 @@
     },
     {
       "key": "mid",
-      "wram": {
-        "dataAddr": 50688,
-        "initializedAddr": 50880,
-        "stackAddr": 51200
-      },
+      "dataAddr": 50688,
+      "initializedAddr": 50880,
+      "defaultStackAddr": 51200,
       "dataPages": [
         198,
         199
@@ -26,11 +22,9 @@
     },
     {
       "key": "high",
-      "wram": {
-        "dataAddr": 55040,
-        "initializedAddr": 55232,
-        "stackAddr": 55552
-      },
+      "dataAddr": 55040,
+      "initializedAddr": 55232,
+      "defaultStackAddr": 55552,
       "dataPages": [
         215,
         216
@@ -45,11 +39,9 @@
       "codeAddr": 896,
       "bankedCode": false,
       "codeBankNum": 0,
-      "wram": {
-        "dataAddr": 49408,
-        "initializedAddr": 49600,
-        "stackAddr": 49920
-      },
+      "dataAddr": 49408,
+      "initializedAddr": 49600,
+      "defaultStackAddr": 49920,
       "dataPages": [
         193,
         194
@@ -62,11 +54,9 @@
       "codeAddr": 896,
       "bankedCode": false,
       "codeBankNum": 0,
-      "wram": {
-        "dataAddr": 50688,
-        "initializedAddr": 50880,
-        "stackAddr": 51200
-      },
+      "dataAddr": 50688,
+      "initializedAddr": 50880,
+      "defaultStackAddr": 51200,
       "dataPages": [
         198,
         199
@@ -79,11 +69,9 @@
       "codeAddr": 896,
       "bankedCode": false,
       "codeBankNum": 0,
-      "wram": {
-        "dataAddr": 55040,
-        "initializedAddr": 55232,
-        "stackAddr": 55552
-      },
+      "dataAddr": 55040,
+      "initializedAddr": 55232,
+      "defaultStackAddr": 55552,
       "dataPages": [
         215,
         216
@@ -96,11 +84,9 @@
       "codeAddr": 16384,
       "bankedCode": true,
       "codeBankNum": 2,
-      "wram": {
-        "dataAddr": 49408,
-        "initializedAddr": 49600,
-        "stackAddr": 49920
-      },
+      "dataAddr": 49408,
+      "initializedAddr": 49600,
+      "defaultStackAddr": 49920,
       "dataPages": [
         193,
         194
@@ -113,11 +99,9 @@
       "codeAddr": 16384,
       "bankedCode": true,
       "codeBankNum": 2,
-      "wram": {
-        "dataAddr": 50688,
-        "initializedAddr": 50880,
-        "stackAddr": 51200
-      },
+      "dataAddr": 50688,
+      "initializedAddr": 50880,
+      "defaultStackAddr": 51200,
       "dataPages": [
         198,
         199
@@ -130,11 +114,9 @@
       "codeAddr": 16384,
       "bankedCode": true,
       "codeBankNum": 2,
-      "wram": {
-        "dataAddr": 55040,
-        "initializedAddr": 55232,
-        "stackAddr": 55552
-      },
+      "dataAddr": 55040,
+      "initializedAddr": 55232,
+      "defaultStackAddr": 55552,
       "dataPages": [
         215,
         216
@@ -144,6 +126,8 @@
   "patchOffsets": {
     "configTable": 640,
     "configTableSize": 128,
+    "cacheTableOffset": 106,
+    "cacheTableMaxBytes": 22,
     "trampolineInitCall": {
       "standard": 516,
       "banked": null
